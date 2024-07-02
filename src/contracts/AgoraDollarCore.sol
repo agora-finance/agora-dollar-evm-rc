@@ -28,6 +28,7 @@ struct ConstructorParams {
     string symbol;
     string eip712Name;
     string eip712Version;
+    address proxyAddress;
 }
 
 contract AgoraDollarCore is Initializable, Eip3009, Erc2612, Erc20Privileged {
@@ -38,19 +39,20 @@ contract AgoraDollarCore is Initializable, Eip3009, Erc2612, Erc20Privileged {
 
     ShortString internal immutable _symbol;
 
-    uint8 public immutable decimals = 18;
+    uint8 public immutable decimals = 6;
 
-    constructor(ConstructorParams memory _params) Eip712(_params.eip712Name, _params.eip712Version) {
+    constructor(
+        ConstructorParams memory _params
+    ) Eip712(_params.eip712Name, _params.eip712Version, _params.proxyAddress) {
         _name = _params.name.toShortString();
         _symbol = _params.symbol.toShortString();
+
+        // Prevent implementation from being initialized
+        _disableInitializers();
     }
 
-    struct InitializeParams {
-        address initialAdminAddress;
-    }
-
-    function initialize(InitializeParams memory _initializeParams) external reinitializer(1) {
-        _initializeAgoraDollarAccessControl({ _initialAdminAddress: _initializeParams.initialAdminAddress });
+    function initialize(address _initialAdminAddress) external reinitializer(1) {
+        _initializeAgoraDollarAccessControl({ _initialAdminAddress: _initialAdminAddress });
     }
 
     //==============================================================================
@@ -161,6 +163,17 @@ contract AgoraDollarCore is Initializable, Eip3009, Erc2612, Erc20Privileged {
         emit SetIsMintPaused({ isPaused: _isPaused });
     }
 
+    function setIsBurnFromPaused(bool _isPaused) external {
+        _requireSenderIsRole({ _role: PAUSER_ROLE });
+        uint256 _contractData = StorageLib.sloadImplementationSlotDataAsUint256();
+        uint256 _newContractData = _contractData.setBitWithMask({
+            _bitToSet: StorageLib.IS_BURN_FROM_PAUSED_BIT_POSITION_,
+            _setBitToOne: _isPaused
+        });
+        _newContractData.sstoreImplementationSlotDataAsUint256();
+        emit SetIsBurnFromPaused({ isPaused: _isPaused });
+    }
+
     function setIsFreezingPaused(bool _isPaused) external {
         _requireSenderIsRole({ _role: PAUSER_ROLE });
         uint256 _contractData = StorageLib.sloadImplementationSlotDataAsUint256();
@@ -248,6 +261,10 @@ contract AgoraDollarCore is Initializable, Eip3009, Erc2612, Erc20Privileged {
     /// @notice The ```SetIsMintPaused``` event is emitted when the isMintPaused state variable is updated
     /// @param isPaused The new value of the isMintPaused state variable
     event SetIsMintPaused(bool isPaused);
+
+    /// @notice The ```SetIsBurnFromPaused``` event is emitted when the isBurnFromPaused state variable is updated
+    /// @param isPaused The new value of the isBurnFromPaused state variable
+    event SetIsBurnFromPaused(bool isPaused);
 
     /// @notice The ```SetIsFreezingPaused``` event is emitted when the isFreezingPaused state variable is updated
     /// @param isPaused The new value of the isFreezingPaused state variable

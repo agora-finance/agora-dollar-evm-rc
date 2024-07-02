@@ -31,10 +31,6 @@ abstract contract Erc20Core is IErc20Errors {
     }
 
     function _transfer(address _from, address _to, uint248 _transferValue) internal {
-        // Checks: contract-wide access control
-        bool _isTransferPaused = StorageLib.sloadImplementationSlotDataAsUint256().isTransferPaused();
-        if (_isTransferPaused) revert StorageLib.TransferPaused();
-
         // Checks: Ensure _from address is not frozen
         StorageLib.Erc20AccountData memory _accountDataFrom = StorageLib.getPointerToErc20CoreStorage().accountData[
             _from
@@ -64,7 +60,7 @@ abstract contract Erc20Core is IErc20Errors {
 
         // Effects: update balances on the _to account
         unchecked {
-            // Overflow not possible: _transferValue + toBalance <= (2^248 -1) x 10^18 [more money than atoms in the galaxy]
+            // Overflow not possible: _transferValue + toBalance <= (2^248 -1) x 10^-6 [more money than atoms in the galaxy]
             StorageLib.getPointerToErc20CoreStorage().accountData[_to].balance =
                 _accountDataTo.balance +
                 _transferValue;
@@ -78,7 +74,8 @@ abstract contract Erc20Core is IErc20Errors {
 
         // We treat uint256.max as infinite allowance, so we don't need to read/write storage in that case
         if (_currentAllowance != type(uint256).max) {
-            if (_currentAllowance < _value) revert ERC20InsufficientAllowance(_spender, _currentAllowance, _value);
+            if (_currentAllowance < _value)
+                revert ERC20InsufficientAllowance({ spender: _spender, allowance: _currentAllowance, needed: _value });
             unchecked {
                 StorageLib.getPointerToErc20CoreStorage().accountAllowances[_owner][_spender] =
                     _currentAllowance -

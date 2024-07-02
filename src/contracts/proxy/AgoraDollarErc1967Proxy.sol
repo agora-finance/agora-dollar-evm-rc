@@ -26,7 +26,6 @@ import { StorageLib } from "./StorageLib.sol";
 import { ITransparentUpgradeableProxy } from "../interfaces/ITransparentUpgradeableProxy.sol";
 
 struct ConstructorParams {
-    address newImplementation;
     address proxyAdminOwnerAddress;
     string eip712Name;
     string eip712Version;
@@ -38,24 +37,15 @@ contract AgoraDollarErc1967Proxy is Eip3009, Proxy {
 
     address private immutable PROXY_ADMIN_ADDRESS;
 
-    constructor(ConstructorParams memory _params) payable Eip712(_params.eip712Name, _params.eip712Version) {
+    constructor(
+        ConstructorParams memory _params
+    ) payable Eip712(_params.eip712Name, _params.eip712Version, address(this)) {
         // Effects: Set the proxy admin address
         PROXY_ADMIN_ADDRESS = address(new AgoraProxyAdmin({ _initialOwner: _params.proxyAdminOwnerAddress }));
         StorageLib.getPointerToAgoraDollarErc1967ProxyAdminStorage().proxyAdminAddress = PROXY_ADMIN_ADDRESS;
 
         // Emit event
         emit AdminChanged({ previousAdmin: address(0), newAdmin: PROXY_ADMIN_ADDRESS });
-
-        // Generate calldata for initialization
-        AgoraDollar.InitializeParams memory _initializeParams = AgoraDollarCore.InitializeParams({
-            initialAdminAddress: _params.proxyAdminOwnerAddress
-        });
-        bytes memory _initializeCalldata = abi.encodeWithSelector(
-            AgoraDollarCore.initialize.selector,
-            _initializeParams
-        );
-
-        _upgradeToAndCall({ _newImplementation: _params.newImplementation, _callData: _initializeCalldata });
     }
 
     fallback() external payable override {
@@ -117,6 +107,9 @@ contract AgoraDollarErc1967Proxy is Eip3009, Proxy {
             address _newImplementation = address(uint160(_contractData));
             _delegate({ implementation: _newImplementation });
         } else {
+            // Checks: contract-wide access control
+            if (_contractData.isTransferPaused()) revert StorageLib.TransferPaused();
+
             // Effects: Transfer the tokens
             _transfer({ _from: msg.sender, _to: _to, _transferValue: _transferValue.toUint248() });
             return true;
@@ -137,6 +130,9 @@ contract AgoraDollarErc1967Proxy is Eip3009, Proxy {
                 _isMsgSenderFrozenCheckEnabled &&
                 StorageLib.getPointerToErc20CoreStorage().accountData[msg.sender].isFrozen
             ) revert AccountIsFrozen({ frozenAccount: msg.sender });
+
+            // Checks: contract-wide access control
+            if (_contractData.isTransferPaused()) revert StorageLib.TransferPaused();
 
             // Effects: Decrease the allowance of the spender
             _spendAllowance({ _owner: _from, _spender: msg.sender, _value: _transferValue });
@@ -199,6 +195,10 @@ contract AgoraDollarErc1967Proxy is Eip3009, Proxy {
                 StorageLib.getPointerToErc20CoreStorage().accountData[msg.sender].isFrozen
             ) revert AccountIsFrozen({ frozenAccount: msg.sender });
 
+            // Checks: contract-wide access control
+            if (_contractData.isTransferPaused()) revert StorageLib.TransferPaused();
+            if (_contractData.isSignatureVerificationPaused()) revert StorageLib.SignatureVerificationPaused();
+
             // Effects: transfer the tokens
             _transferWithAuthorization({
                 _from: _from,
@@ -253,12 +253,9 @@ contract AgoraDollarErc1967Proxy is Eip3009, Proxy {
             address _newImplementation = address(uint160(_contractData));
             _delegate({ implementation: _newImplementation });
         } else {
-            // Reading account data for sender adds gas so we should only do it if set true
-            bool _isMsgSenderFrozenCheckEnabled = _contractData.isMsgSenderFrozenCheckEnabled();
-            if (
-                _isMsgSenderFrozenCheckEnabled &&
-                StorageLib.getPointerToErc20CoreStorage().accountData[msg.sender].isFrozen
-            ) revert AccountIsFrozen({ frozenAccount: msg.sender });
+            // Checks: contract-wide access control
+            if (_contractData.isTransferPaused()) revert StorageLib.TransferPaused();
+            if (_contractData.isSignatureVerificationPaused()) revert StorageLib.SignatureVerificationPaused();
 
             // Effects: transfer the tokens
             _receiveWithAuthorization({
